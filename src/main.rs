@@ -52,6 +52,26 @@ impl SearchConfig {
     }
 }
 
+fn print_search_result(result: &SearchResult) {
+    println!("File: {}:{}", result.path.display(), result.line_number);
+    
+    // Print context before
+    for (line_num, line) in &result.context_before {
+        println!("{:>3} | {}", line_num, line);
+    }
+    
+    // Print matching line with '>' indicator
+    println!(">{:>2} | {}", result.line_number, result.line);
+    
+    // Print context after
+    for (line_num, line) in &result.context_after {
+        println!("{:>3} | {}", line_num, line);
+    }
+    
+    // Empty line between files
+    println!();
+}
+
 fn main() -> Result<()> {
     // Set PDF_QUIET=1 to suppress PDF warnings
     env::set_var("PDF_QUIET", "1");
@@ -78,19 +98,7 @@ fn main() -> Result<()> {
     let results = search_files(&config)?;
     
     for result in results {
-        println!("{}:{}", result.path.display(), result.line_number);
-        
-        for (num, line) in &result.context_before {
-            println!("{}-{}: {}", result.path.display(), num, line);
-        }
-        
-        println!("{}: {}", result.line_number, result.line);
-        
-        for (num, line) in &result.context_after {
-            println!("{}+{}: {}", result.path.display(), num, line);
-        }
-        
-        println!();
+        print_search_result(&result);
     }
 
     Ok(())

@@ -3,7 +3,7 @@ use grep::{
     regex::RegexMatcher,
     searcher::{
         Searcher, Sink, SinkMatch, SinkContext, SinkContextKind,
-        SearcherBuilder, BinaryDetection
+        SearcherBuilder, BinaryDetection, SinkFinish
     },
     matcher::Matcher,
 };
@@ -34,14 +34,44 @@ struct SearchSink<'a> {
     context_before: Vec<String>,
     context_after: Vec<String>,
     context_lines: usize,
+    last_match: Option<SearchResult>,
+}
+
+impl<'a> SearchSink<'a> {
+    fn new(tx: &'a Sender<SearchResult>, path: PathBuf, context_lines: usize) -> Self {
+        SearchSink {
+            tx,
+            path,
+            context_before: Vec::new(),
+            context_after: Vec::new(),
+            context_lines,
+            last_match: None,
+        }
+    }
+
+    fn send_last_match(&mut self) {
+        if let Some(mut result) = self.last_match.take() {
+            result.context_after = self.context_after.iter()
+                .enumerate()
+                .map(|(i, line)| (
+                    result.line_number + i as u64 + 1,
+                    line.clone()
+                ))
+                .collect();
+            self.tx.send(result).unwrap();
+            self.context_after.clear();
+        }
+    }
 }
 
 impl<'a> Sink for SearchSink<'a> {
     type Error = std::io::Error;
 
     fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, Self::Error> {
+        self.send_last_match();
+
         if let Ok(line) = String::from_utf8(mat.bytes().to_vec()) {
-            let result = SearchResult { 
+            let result = SearchResult {
                 path: self.path.clone(),
                 line_number: mat.line_number().unwrap_or(0),
                 line: line.trim().to_string(),
@@ -54,7 +84,9 @@ impl<'a> Sink for SearchSink<'a> {
                     .collect(),
                 context_after: Vec::new(),
             };
-            self.tx.send(result).unwrap();
+            
+            self.last_match = Some(result);
+            self.context_after.clear();
         }
         Ok(true)
     }
@@ -63,18 +95,25 @@ impl<'a> Sink for SearchSink<'a> {
         if let Ok(line) = String::from_utf8(ctx.bytes().to_vec()) {
             match ctx.kind() {
                 SinkContextKind::Before => {
-                    self.context_before.push(line);
+                    self.context_before.push(line.trim().to_string());
                     if self.context_before.len() > self.context_lines {
                         self.context_before.remove(0);
                     }
                 }
                 SinkContextKind::After => {
-                    self.context_after.push(line);
+                    if self.context_after.len() < self.context_lines {
+                        self.context_after.push(line.trim().to_string());
+                    }
                 }
                 SinkContextKind::Other => {}
             }
         }
         Ok(true)
+    }
+
+    fn finish(&mut self, _searcher: &Searcher, _: &SinkFinish) -> Result<(), Self::Error> {
+        self.send_last_match();
+        Ok(())
     }
 }
 
@@ -201,13 +240,7 @@ pub fn search(config: &SearchConfig) -> Result<impl Iterator<Item = SearchResult
                     .after_context(context_lines)
                     .build();
 
-                let mut sink = SearchSink {
-                    tx: &tx,
-                    path: path.to_path_buf(),
-                    context_before: Vec::new(),
-                    context_after: Vec::new(),
-                    context_lines,
-                };
+                let mut sink = SearchSink::new(&tx, path.to_path_buf(), context_lines);
 
                 if let Err(e) = searcher.search_path(&matcher, path, &mut sink) {
                     if verbose {
