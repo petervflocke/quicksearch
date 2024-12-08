@@ -4,7 +4,7 @@ use std::env;
 use std::path::PathBuf;
 
 mod search;
-use search::search_files;
+use search::{search_files, SearchResult};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
