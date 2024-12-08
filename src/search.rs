@@ -117,14 +117,14 @@ impl<'a> Sink for SearchSink<'a> {
     }
 }
 
-fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<SearchResult>, verbose: bool) -> Result<()> {
+fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<SearchResult>, verbose: bool, context_lines: usize) -> Result<()> {
     let path_buf = path.to_path_buf();
     
     let result = std::panic::catch_unwind(|| {
         let output = Command::new("pdftotext")
             .arg(path.to_str().unwrap())
-            .arg("-")  // Output to stdout
-            .arg("-q") // Add quiet flag
+            .arg("-")
+            .arg("-q")
             .output()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, 
                 format!("Failed to run pdftotext: {}", e)))?;
@@ -137,17 +137,41 @@ fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<Search
         }
 
         let text = String::from_utf8_lossy(&output.stdout).to_string();
+        let lines: Vec<&str> = text.lines().collect();
         
-        for (line_number, line) in text.lines().enumerate() {
+        for (line_number, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
             if !trimmed.is_empty() && matcher.is_match(trimmed.as_bytes())? {
+                let line_num = (line_number + 1) as u64;
+                
+                // Collect context before
+                let context_before: Vec<(u64, String)> = lines[line_number.saturating_sub(context_lines)..line_number]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &l)| (
+                        (line_num - (context_lines - i) as u64),
+                        l.trim().to_string()
+                    ))
+                    .collect();
+
+                // Collect context after
+                let context_after: Vec<(u64, String)> = lines[line_number + 1..std::cmp::min(line_number + 1 + context_lines, lines.len())]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &l)| (
+                        line_num + i as u64 + 1,
+                        l.trim().to_string()
+                    ))
+                    .collect();
+
                 let result = SearchResult {
                     path: path_buf.clone(),
-                    line_number: (line_number + 1) as u64,
+                    line_number: line_num,
                     line: trimmed.to_string(),
-                    context_before: Vec::new(),
-                    context_after: Vec::new(),
+                    context_before,
+                    context_after,
                 };
+                
                 tx.send(result).map_err(|_| {
                     std::io::Error::new(std::io::ErrorKind::Other, "Failed to send result")
                 })?;
@@ -217,7 +241,7 @@ pub fn search(config: &SearchConfig) -> Result<impl Iterator<Item = SearchResult
                 
                 // Handle PDFs separately
                 if path.extension().map_or(false, |ext| ext == "pdf") {
-                    if let Err(e) = search_pdf(path, &matcher, &tx, verbose) {
+                    if let Err(e) = search_pdf(path, &matcher, &tx, verbose, context_lines) {
                         if verbose {
                             eprintln!("Error searching PDF {}: {}", path.display(), e);
                         }
