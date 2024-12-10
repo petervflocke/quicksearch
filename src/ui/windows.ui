@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 0.94.0 -->
+<interface>
+  <!-- interface-name windows.ui -->
+  <!-- interface-description Quick Search GUI -->
+  <requires lib="gtk" version="4.12"/>
+  <object class="GtkWindow" id="main_window">
+    <property name="default-height">800</property>
+    <property name="default-width">800</property>
+    <property name="title">Quick Search GUI</property>
+    <child>
+      <object class="GtkBox" id="main_box">
+        <property name="margin-bottom">8</property>
+        <property name="margin-end">8</property>
+        <property name="margin-start">8</property>
+        <property name="margin-top">8</property>
+        <property name="orientation">vertical</property>
+        <property name="spacing">8</property>
+        <child>
+          <object class="GtkHeaderBar" id="header"/>
+        </child>
+        <child>
+          <object class="GtkBox" id="path_box">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">8</property>
+            <child>
+              <object class="GtkEntry" id="path_entry">
+                <property name="hexpand">true</property>
+                <property name="placeholder-text">Search path (e.g., /home/user/docs)</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="path_button">
+                <property name="label">Browse</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkSearchEntry" id="search_entry">
+            <property name="placeholder-text">Enter text to search for...</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="pattern_entry">
+            <property name="placeholder-text">File pattern (e.g., *.txt, *.rs)</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="search_button">
+            <property name="label">Search</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <child>
+              <object class="GtkEntry" id="number_processes">
+                <property name="placeholder-text">#CPU</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkScrolledWindow" id="scrolled_window">
+            <property name="vexpand">true</property>
+            <child>
+              <object class="GtkTextView" id="text_view">
+                <property name="editable">false</property>
+                <property name="wrap-mode">word</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

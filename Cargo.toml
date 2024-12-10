@@ -2,7 +2,6 @@
 name = "quicksearch"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
 
 [dependencies]
 # Core functionality
@@ -15,3 +14,7 @@ pdf-extract = "0.7"
 glob = "0.3"
 itertools = "0.12"
 crossbeam-channel = "0.5"
+gtk4 = { version = "0.7", features = ["v4_12"] }
+libadwaita = { version = "0.5", features = ["v1_4"] }
+glib = "0.18"
+gio = "0.18"

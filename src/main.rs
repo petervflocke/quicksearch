@@ -4,14 +4,20 @@ use std::env;
 use std::path::PathBuf;
 
 mod search;
+mod gui;
+
 use search::{search_files, SearchResult};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
+    /// Launch interactive mode
+    #[arg(short, long, default_value_t = false)]
+    pub interactive: bool,
+
     /// Text to search for
-    #[arg(short, long)]
-    pub text: String,
+    #[arg(short, long, required = false)]
+    pub text: Option<String>,
 
     /// File pattern to search in (e.g., "*.txt" or "*.{txt,md}")
     #[arg(short, long, default_value = "*")]
@@ -73,6 +79,15 @@ fn print_search_result(result: &SearchResult) {
 }
 
 fn main() -> Result<()> {
+    // Check for interactive mode in raw args
+    let args: Vec<String> = env::args().collect();
+    if args.contains(&"-i".to_string()) || args.contains(&"--interactive".to_string()) {
+        let gui = gui::SearchGUI::new();
+        gui.build();
+        gui.run();
+        return Ok(());
+    }
+
     // Set PDF_QUIET=1 to suppress PDF warnings
     env::set_var("PDF_QUIET", "1");
     
@@ -81,14 +96,24 @@ fn main() -> Result<()> {
         env::set_var("RUST_BACKTRACE", "0");
     }
 
+    // Parse arguments for CLI mode
     let args = Args::parse();
+
+    // CLI mode requires text
+    let text = match args.text {
+        Some(text) => text,
+        None => {
+            eprintln!("Error: Search text (-t/--text) is required in CLI mode");
+            std::process::exit(1);
+        }
+    };
     
     let config = SearchConfig {
         paths: args.paths,
         patterns: args.pattern.split(',')
             .map(|s| s.trim().to_string())
             .collect(),
-        query: args.text,
+        query: text,
         verbose: args.verbose,
         context_lines: args.context,
         search_binary: false,
