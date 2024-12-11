@@ -275,11 +275,16 @@ pub fn search(config: &SearchConfig) -> Result<impl Iterator<Item = SearchResult
         }));
     }
 
-    // Start the directory walker
-    let walker = WalkBuilder::new(&search_path)  // Use cloned search_path
-        .hidden(true)
-        .ignore(true)
-        .git_ignore(true)
+// TODO: Add configuration parameter to control .gitignore behavior
+//       - Add bool field to SearchConfig like `respect_gitignore`
+//       - Default to false for searching everything
+//       - Add bool field to SearchConfig like `respect_gitignore`
+//       - Default to false for searching everything
+//       - When true, respect .gitignore rules
+    let walker = WalkBuilder::new(&search_path)
+        .hidden(false)
+        .ignore(false)
+        .git_ignore(false)
         .build_parallel();
 
     let quit_walker = quit.clone();

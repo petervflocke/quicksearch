@@ -4,6 +4,8 @@ use crate::search::search_files;
 use crate::SearchConfig;
 use std::path::PathBuf;
 use gio;
+use std::thread;
+use async_channel;
 
 pub struct SearchGUI {
     pub app: adw::Application,
@@ -39,7 +41,7 @@ impl SearchGUI {
 
     pub fn build_with_config(&self, config: SearchConfig) {
         // Debug prints commented out for cleaner output, uncomment if needed for debugging
-        // println!("GUI received config: {:?}", config);
+        println!("GUI received config: {:?}", config);
         let builder_clone = self.builder.clone();
         let config_clone = config.clone();
         
@@ -107,9 +109,21 @@ impl SearchGUI {
             let number_processes_clone = number_processes.clone();
             let number_lines_clone = number_lines.clone();
 
-            search_button.connect_clicked(move |_| {
+            let builder_for_click = builder_clone.clone();
+            search_button.connect_clicked(move |button| {
+                // Disable search button
+                button.set_sensitive(false);
+                
+                // Get status bar
+                let status_bar: gtk4::Label = builder_for_click
+                    .object("status_bar")
+                    .expect("Could not get status_bar");
+                
                 // Clear previous results
                 buffer.set_text("");
+                
+                // Update status to "Searching..."
+                status_bar.set_label("Searching...");
                 
                 let search_config = SearchConfig {
                     paths: vec![PathBuf::from(path_entry_clone.text().as_str())],
@@ -127,39 +141,62 @@ impl SearchGUI {
                     search_binary: false,
                 };
                 
-                // println!("Search button clicked with config: {:?}", search_config);
+                println!("Search button clicked with config: {:?}", search_config);
                 
-                match search_files(&search_config) {
-                    Ok(results) => {
-                        for result in results {
-                            // Format the result
-                            let mut text = format!("File: {}:{}\n", result.path.display(), result.line_number);
-                            
-                            // Add context before
-                            for (line_num, line) in &result.context_before {
-                                text.push_str(&format!("{:>3} | {}\n", line_num, line));
+                // Clone what we need for the thread
+                let buffer_clone = buffer.clone();
+                let status_bar_clone = status_bar.clone();
+                let button_clone = button.clone();
+
+                // Create channel
+                let (tx, rx) = async_channel::bounded(1);
+                
+                // Spawn search thread
+                let tx_clone = tx.clone();
+                thread::spawn(move || {
+                    let results = search_files(&search_config);
+                    let _ = tx_clone.try_send(results);
+                });
+
+                // Handle results in main thread
+                glib::spawn_future_local(async move {
+                    if let Ok(results) = rx.recv().await {
+                        match results {
+                            Ok(results) => {
+                                // Update results in text view
+                                for result in &results {
+                                    let mut text = format!("File: {}:{}\n", result.path.display(), result.line_number);
+                                    
+                                    for (line_num, line) in &result.context_before {
+                                        text.push_str(&format!("{:>3} | {}\n", line_num, line));
+                                    }
+                                    
+                                    text.push_str(&format!(">{:>2} | {}\n", result.line_number, result.line));
+                                    
+                                    for (line_num, line) in &result.context_after {
+                                        text.push_str(&format!("{:>3} | {}\n", line_num, line));
+                                    }
+                                    
+                                    text.push('\n');
+                                    
+                                    let mut end = buffer_clone.end_iter();
+                                    buffer_clone.insert(&mut end, &text);
+                                }
+
+                                // Update status bar with result count
+                                status_bar_clone.set_label(&format!("Found {} matching files", results.len()));
+                            },
+                            Err(e) => {
+                                let mut end = buffer_clone.end_iter();
+                                buffer_clone.insert(&mut end, &format!("Search error: {}\n", e));
+                                status_bar_clone.set_label("Search failed");
                             }
-                            
-                            // Add matching line
-                            text.push_str(&format!(">{:>2} | {}\n", result.line_number, result.line));
-                            
-                            // Add context after
-                            for (line_num, line) in &result.context_after {
-                                text.push_str(&format!("{:>3} | {}\n", line_num, line));
-                            }
-                            
-                            text.push('\n');
-                            
-                            // Get mutable end iterator and append text
-                            let mut end = buffer.end_iter();
-                            buffer.insert(&mut end, &text);
                         }
-                    },
-                    Err(e) => {
-                        let mut end = buffer.end_iter();
-                        buffer.insert(&mut end, &format!("Search error: {}\n", e));
                     }
-                }
+                    
+                    // Re-enable search button
+                    button_clone.set_sensitive(true);
+                });
             });
 
             // Connect browse button
