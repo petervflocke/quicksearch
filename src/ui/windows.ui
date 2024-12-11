@@ -17,9 +17,6 @@
         <property name="orientation">vertical</property>
         <property name="spacing">8</property>
         <child>
-          <object class="GtkHeaderBar" id="header"/>
-        </child>
-        <child>
           <object class="GtkBox" id="path_box">
             <property name="orientation">horizontal</property>
             <property name="spacing">8</property>
@@ -30,7 +27,7 @@
               </object>
             </child>
             <child>
-              <object class="GtkButton" id="path_button">
+              <object class="GtkButton" id="browse_button">
                 <property name="label">Browse</property>
               </object>
             </child>
@@ -47,26 +44,41 @@
           </object>
         </child>
         <child>
-          <object class="GtkButton" id="search_button">
-            <property name="label">Search</property>
-          </object>
-        </child>
-        <child>
-          <object class="GtkBox">
+          <object class="GtkBox" id="extra_params_box">
+            <property name="spacing">8</property>
             <child>
-              <object class="GtkEntry" id="number_processes">
-                <property name="placeholder-text">#CPU</property>
+              <object class="GtkSpinButton" id="number_processes">
+                <property name="climb-rate">1.0</property>
+                <property name="numeric">True</property>
+                <property name="width-chars">2</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkEntry" id="number_lines">
+                <property name="max-width-chars">5</property>
+                <property name="placeholder-text">#Lines</property>
+                <property name="width-chars">5</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkCheckButton" id="regex-onoff">
+                <property name="label">Regex?</property>
               </object>
             </child>
           </object>
         </child>
         <child>
-          <object class="GtkScrolledWindow" id="scrolled_window">
+          <object class="GtkButton" id="search_button">
+            <property name="label">Search</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkScrolledWindow">
             <property name="vexpand">true</property>
             <child>
-              <object class="GtkTextView" id="text_view">
+              <object class="GtkTextView" id="results_view">
                 <property name="editable">false</property>
-                <property name="wrap-mode">word</property>
+                <property name="monospace">true</property>
               </object>
             </child>
           </object>

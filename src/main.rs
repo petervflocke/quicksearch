@@ -39,7 +39,7 @@ pub struct Args {
     pub context: usize,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SearchConfig {
     pub paths: Vec<PathBuf>,
     pub patterns: Vec<String>,
@@ -50,11 +50,37 @@ pub struct SearchConfig {
     pub num_workers: usize,
 }
 
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            paths: Vec::new(),
+            patterns: Vec::new(),
+            query: String::new(),
+            num_workers: 0,
+            context_lines: 0,
+            search_binary: false,
+            verbose: false,
+        }
+    }
+}
+
 impl SearchConfig {
     fn get_search_path(&self) -> String {
         self.paths.first()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| ".".to_string())
+    }
+
+    fn from_args(args: &Args, text: String) -> Self {
+        Self {
+            paths: args.paths.clone(),
+            patterns: vec![args.pattern.clone()],
+            query: text,
+            verbose: args.verbose,
+            context_lines: args.context,
+            search_binary: false,
+            num_workers: args.workers,
+        }
     }
 }
 
@@ -78,48 +104,17 @@ fn print_search_result(result: &SearchResult) {
     println!();
 }
 
-fn main() -> Result<()> {
-    // Check for interactive mode in raw args
-    let args: Vec<String> = env::args().collect();
-    if args.contains(&"-i".to_string()) || args.contains(&"--interactive".to_string()) {
-        let gui = gui::SearchGUI::new();
-        gui.build();
-        gui.run();
-        return Ok(());
-    }
-
-    // Set PDF_QUIET=1 to suppress PDF warnings
-    env::set_var("PDF_QUIET", "1");
-    
-    // Optional: Set RUST_BACKTRACE=1 for debugging
-    if env::var("RUST_BACKTRACE").is_err() {
-        env::set_var("RUST_BACKTRACE", "0");
-    }
-
-    // Parse arguments for CLI mode
-    let args = Args::parse();
-
+fn run_cli(args: Args) -> Result<()> {
     // CLI mode requires text
-    let text = match args.text {
-        Some(text) => text,
+    let text = match &args.text {
+        Some(text) => text.clone(),
         None => {
             eprintln!("Error: Search text (-t/--text) is required in CLI mode");
             std::process::exit(1);
         }
     };
     
-    let config = SearchConfig {
-        paths: args.paths,
-        patterns: args.pattern.split(',')
-            .map(|s| s.trim().to_string())
-            .collect(),
-        query: text,
-        verbose: args.verbose,
-        context_lines: args.context,
-        search_binary: false,
-        num_workers: args.workers,
-    };
-
+    let config = SearchConfig::from_args(&args, text);
     let results = search_files(&config)?;
     
     for result in results {
@@ -127,4 +122,34 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_gui(config: SearchConfig) -> Result<()> {
+    let gui = gui::SearchGUI::new();
+    gui.build_with_config(config);
+    gui.run();
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    // Set environment variables
+    env::set_var("PDF_QUIET", "1");
+    if env::var("RUST_BACKTRACE").is_err() {
+        env::set_var("RUST_BACKTRACE", "0");
+    }
+
+    // Parse arguments
+    let args = Args::parse();
+
+    // Get search text (required for both modes)
+    let text = args.text.clone().unwrap_or_default();
+
+    let config = SearchConfig::from_args(&args, text);
+
+    // Choose mode based on interactive flag
+    if args.interactive {
+        run_gui(config)
+    } else {
+        run_cli(args)
+    }
 }

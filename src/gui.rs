@@ -1,12 +1,13 @@
 use gtk4::prelude::*;
 use libadwaita as adw;
-use adw::prelude::*;
 use crate::search::search_files;
 use crate::SearchConfig;
 use std::path::PathBuf;
+use gio;
 
 pub struct SearchGUI {
     pub app: adw::Application,
+    builder: gtk4::Builder,
 }
 
 impl SearchGUI {
@@ -14,50 +15,163 @@ impl SearchGUI {
         // Initialize libadwaita
         adw::init().expect("Failed to initialize libadwaita");
 
+        // Create builder and load UI file
+        let builder = gtk4::Builder::from_file("src/ui/windows.ui");
+        
+        // Verify that we can load all required widgets
+        let required_widgets = ["main_window", "path_entry", "search_entry", 
+                              "pattern_entry", "number_processes", "number_lines",
+                              "search_button", "browse_button"];
+        
+        for widget in required_widgets {
+            if builder.object::<gtk4::Widget>(widget).is_none() {
+                panic!("Could not find required widget '{}' in UI file", widget);
+            }
+        }
+
         Self {
             app: adw::Application::builder()
                 .application_id("org.quicksearch.app")
-                .build()
+                .build(),
+            builder,
         }
     }
 
-    pub fn build(&self) {
+    pub fn build_with_config(&self, config: SearchConfig) {
+        // Debug prints commented out for cleaner output, uncomment if needed for debugging
+        // println!("GUI received config: {:?}", config);
+        let builder_clone = self.builder.clone();
+        let config_clone = config.clone();
+        
         self.app.connect_activate(move |app| {
-            // Create a new window
-            let window = adw::ApplicationWindow::builder()
-                .application(app)
-                .default_width(800)
-                .default_height(600)
-                .title("QuickSearch")
-                .build();
-
-            // Create a header bar
-            let header = adw::HeaderBar::new();
+            // println!("Setting initial values from config: {:?}", config_clone);
             
-            // Create main content box
-            let content = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-            content.set_margin_top(8);
-            content.set_margin_bottom(8);
-            content.set_margin_start(8);
-            content.set_margin_end(8);
-            content.append(&header);
+            let window: gtk4::Window = builder_clone
+                .object("main_window")
+                .expect("Could not get main_window");
+            window.set_application(Some(app));
+            window.present();
 
-            // Add path selection box
-            let path_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-            let path_entry = gtk4::Entry::new();
-            path_entry.set_placeholder_text(Some("Search path (e.g., /home/user/docs)"));
-            path_entry.set_hexpand(true);
-            let path_button = gtk4::Button::with_label("Browse");
-            path_box.append(&path_entry);
-            path_box.append(&path_button);
-            content.append(&path_box);
+            // Get all widgets
+            let path_entry: gtk4::Entry = builder_clone
+                .object("path_entry")
+                .expect("Could not get path_entry");
+            
+            let search_entry: gtk4::SearchEntry = builder_clone
+                .object("search_entry")
+                .expect("Could not get search_entry");
+            
+            let pattern_entry: gtk4::Entry = builder_clone
+                .object("pattern_entry")
+                .expect("Could not get pattern_entry");
+            
+            let number_processes: gtk4::SpinButton = builder_clone
+                .object("number_processes")
+                .expect("Could not get number_processes");
 
-            // Connect path button
+            let number_lines: gtk4::Entry = builder_clone
+                .object("number_lines")
+                .expect("Could not get number_lines");
+
+            let results_view: gtk4::TextView = builder_clone
+                .object("results_view")
+                .expect("Could not get results_view");
+            
+            let buffer = results_view.buffer();
+
+            // Set initial values from config
+            if !config_clone.paths.is_empty() {
+                path_entry.set_text(&config_clone.paths[0].to_string_lossy());
+            }
+            search_entry.set_text(&config_clone.query);
+            pattern_entry.set_text(&config_clone.patterns.join(","));
+            
+            // Fix: Properly set the SpinButton value and range
+            number_processes.set_range(0.0, 32.0);  // Allow 0 for auto-detection
+            number_processes.set_increments(1.0, 4.0);  // Step by 1, page by 4
+            number_processes.set_value(config_clone.num_workers as f64);
+
+            // Add tooltip to explain 0
+            number_processes.set_tooltip_text(Some("Number of worker threads (0 = automatic)"));
+
+            number_lines.set_text(&config_clone.context_lines.to_string());
+
+            // Connect search button
+            let search_button: gtk4::Button = builder_clone
+                .object("search_button")
+                .expect("Could not get search_button");
+            
+            let path_entry_clone = path_entry.clone();
+            let search_entry_clone = search_entry.clone();
+            let pattern_entry_clone = pattern_entry.clone();
+            let number_processes_clone = number_processes.clone();
+            let number_lines_clone = number_lines.clone();
+
+            search_button.connect_clicked(move |_| {
+                // Clear previous results
+                buffer.set_text("");
+                
+                let search_config = SearchConfig {
+                    paths: vec![PathBuf::from(path_entry_clone.text().as_str())],
+                    patterns: pattern_entry_clone.text()
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect(),
+                    query: search_entry_clone.text().to_string(),
+                    num_workers: number_processes_clone.value() as usize,
+                    context_lines: number_lines_clone.text()
+                        .as_str()
+                        .parse()
+                        .unwrap_or(0),
+                    verbose: false,
+                    search_binary: false,
+                };
+                
+                // println!("Search button clicked with config: {:?}", search_config);
+                
+                match search_files(&search_config) {
+                    Ok(results) => {
+                        for result in results {
+                            // Format the result
+                            let mut text = format!("File: {}:{}\n", result.path.display(), result.line_number);
+                            
+                            // Add context before
+                            for (line_num, line) in &result.context_before {
+                                text.push_str(&format!("{:>3} | {}\n", line_num, line));
+                            }
+                            
+                            // Add matching line
+                            text.push_str(&format!(">{:>2} | {}\n", result.line_number, result.line));
+                            
+                            // Add context after
+                            for (line_num, line) in &result.context_after {
+                                text.push_str(&format!("{:>3} | {}\n", line_num, line));
+                            }
+                            
+                            text.push('\n');
+                            
+                            // Get mutable end iterator and append text
+                            let mut end = buffer.end_iter();
+                            buffer.insert(&mut end, &text);
+                        }
+                    },
+                    Err(e) => {
+                        let mut end = buffer.end_iter();
+                        buffer.insert(&mut end, &format!("Search error: {}\n", e));
+                    }
+                }
+            });
+
+            // Connect browse button
+            let browse_button: gtk4::Button = builder_clone
+                .object("browse_button")
+                .expect("Could not get browse_button");
+            
             let path_entry_clone = path_entry.clone();
             let window_clone = window.clone();
-            path_button.connect_clicked(move |_| {
+            browse_button.connect_clicked(move |_| {
                 let file_chooser = gtk4::FileDialog::builder()
-                    .title("Choose Search Directory")
+                    .title("Select Folder")
                     .modal(true)
                     .build();
 
@@ -74,103 +188,10 @@ impl SearchGUI {
                     },
                 );
             });
-
-            // Add search entry
-            let search_entry = gtk4::SearchEntry::new();
-            search_entry.set_placeholder_text(Some("Enter text to search for..."));
-            content.append(&search_entry);
-
-            // Add pattern entry
-            let pattern_entry = gtk4::Entry::new();
-            pattern_entry.set_placeholder_text(Some("File pattern (e.g., *.txt, *.rs)"));
-            content.append(&pattern_entry);
-
-            // Add search button
-            let search_button = gtk4::Button::with_label("Search");
-            content.append(&search_button);
-
-            // Add scrolled window for results
-            let scrolled_window = gtk4::ScrolledWindow::new();
-            scrolled_window.set_vexpand(true);
-            
-            // Add text view for results
-            let text_view = gtk4::TextView::new();
-            text_view.set_editable(false);
-            text_view.set_wrap_mode(gtk4::WrapMode::Word);
-            scrolled_window.set_child(Some(&text_view));
-            content.append(&scrolled_window);
-
-            // Connect search button click
-            let text_buffer = text_view.buffer();
-            search_button.connect_clicked(move |_| {
-                let search_text = search_entry.text().to_string();
-                let pattern = pattern_entry.text().to_string();
-                let search_path = path_entry.text().to_string();
-                
-                if search_text.is_empty() {
-                    text_buffer.set_text("Please enter text to search for");
-                    return;
-                }
-
-                // Create search config
-                let config = SearchConfig {
-                    paths: vec![PathBuf::from(if search_path.is_empty() { "." } else { &search_path })],
-                    patterns: pattern.split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect(),
-                    query: search_text,
-                    verbose: false,
-                    context_lines: 2,
-                    search_binary: false,
-                    num_workers: 0,
-                };
-
-                // Perform search
-                match search_files(&config) {
-                    Ok(results) => {
-                        if results.is_empty() {
-                            text_buffer.set_text("No results found");
-                        } else {
-                            let mut output = String::new();
-                            for result in results {
-                                output.push_str(&format!("File: {}:{}\n", 
-                                    result.path.display(), result.line_number));
-                                
-                                // Add context before
-                                for (line_num, line) in &result.context_before {
-                                    output.push_str(&format!("{:>3} | {}\n", line_num, line));
-                                }
-                                
-                                // Add matching line
-                                output.push_str(&format!(">{:>2} | {}\n", 
-                                    result.line_number, result.line));
-                                
-                                // Add context after
-                                for (line_num, line) in &result.context_after {
-                                    output.push_str(&format!("{:>3} | {}\n", line_num, line));
-                                }
-                                
-                                output.push('\n');
-                            }
-                            text_buffer.set_text(&output);
-                        }
-                    },
-                    Err(e) => {
-                        text_buffer.set_text(&format!("Search error: {}", e));
-                    }
-                }
-            });
-
-            // Set the window content
-            window.set_content(Some(&content));
-
-            // Show the window
-            window.present();
         });
     }
 
     pub fn run(&self) -> i32 {
-        // Run with empty arguments array to avoid GTK argument parsing
         self.app.run_with_args::<&str>(&[]).into()
     }
 } 
