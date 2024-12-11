@@ -143,8 +143,15 @@ impl SearchGUI {
                 status_bar.set_label("Searching...");
                 
                 // Prepare search config
+                let search_path = if path_entry_clone.text().is_empty() {
+                    // If no path entered, use current directory
+                    std::env::current_dir().unwrap_or_default()
+                } else {
+                    PathBuf::from(path_entry_clone.text().as_str())
+                };
+
                 let search_config = SearchConfig {
-                    paths: vec![PathBuf::from(path_entry_clone.text().as_str())],
+                    paths: vec![search_path],  // Use the processed path
                     patterns: pattern_entry_clone.text()
                         .split(',')
                         .map(|s| s.trim().to_string())
