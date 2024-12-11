@@ -2,6 +2,8 @@ use clap::Parser;
 use anyhow::Result;
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 mod search;
 mod gui;
@@ -104,18 +106,12 @@ fn print_search_result(result: &SearchResult) {
     println!();
 }
 
-fn run_cli(args: Args) -> Result<()> {
-    // CLI mode requires text
-    let text = match &args.text {
-        Some(text) => text.clone(),
-        None => {
-            eprintln!("Error: Search text (-t/--text) is required in CLI mode");
-            std::process::exit(1);
-        }
-    };
-    
+fn run_cli(mut args: Args) -> Result<()> {
+    let quit = Arc::new(AtomicBool::new(false));
+    // Take ownership of text before borrowing args
+    let text = args.text.take().unwrap_or_default();
     let config = SearchConfig::from_args(&args, text);
-    let results = search_files(&config)?;
+    let results = search_files(&config, quit)?;
     
     for result in results {
         print_search_result(&result);

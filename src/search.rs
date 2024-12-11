@@ -192,15 +192,21 @@ fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<Search
     }
 }
 
-pub fn search_files(config: &SearchConfig) -> Result<Vec<SearchResult>> {
-    let results = search(config)?
+pub fn search_files(
+    config: &SearchConfig,
+    quit: Arc<AtomicBool>
+) -> Result<Vec<SearchResult>> {
+    let results = search(config, quit)?
         .collect::<Vec<SearchResult>>();
     Ok(results)
 }
 
-pub fn search(config: &SearchConfig) -> Result<impl Iterator<Item = SearchResult>> {
+pub fn search(
+    config: &SearchConfig,
+    quit: Arc<AtomicBool>
+) -> Result<impl Iterator<Item = SearchResult>> {
     let (tx, rx) = mpsc::channel();
-    let quit = Arc::new(AtomicBool::new(false));
+    let quit = quit.clone();
 
     // Clone the data we need from config before the thread spawn
     let patterns = config.patterns.clone();

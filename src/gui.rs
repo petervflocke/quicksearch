@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use gio;
 use std::thread;
 use async_channel;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct SearchGUI {
     pub app: adw::Application,
@@ -99,20 +101,35 @@ impl SearchGUI {
             number_lines.set_text(&config_clone.context_lines.to_string());
 
             // Connect search button
+            let quit_search = Arc::new(AtomicBool::new(false));
+
+            // Get both buttons
             let search_button: gtk4::Button = builder_clone
                 .object("search_button")
                 .expect("Could not get search_button");
-            
+            let cancel_button: gtk4::Button = builder_clone
+                .object("cancel_button")
+                .expect("Could not get cancel_button");
+
+            // Set up cancel button handler
+            let quit_search_for_cancel = quit_search.clone();
+            cancel_button.connect_clicked(move |button| {
+                quit_search_for_cancel.store(true, Ordering::Relaxed);
+                button.set_sensitive(false);
+            });
+
             let path_entry_clone = path_entry.clone();
             let search_entry_clone = search_entry.clone();
             let pattern_entry_clone = pattern_entry.clone();
             let number_processes_clone = number_processes.clone();
             let number_lines_clone = number_lines.clone();
 
+            // Modify search button handler
             let builder_for_click = builder_clone.clone();
+            let cancel_button_for_search = cancel_button.clone();
             search_button.connect_clicked(move |button| {
-                // Disable search button
-                button.set_sensitive(false);
+                // Reset quit flag
+                quit_search.store(false, Ordering::Relaxed);
                 
                 // Get status bar
                 let status_bar: gtk4::Label = builder_for_click
@@ -125,6 +142,7 @@ impl SearchGUI {
                 // Update status to "Searching..."
                 status_bar.set_label("Searching...");
                 
+                // Prepare search config
                 let search_config = SearchConfig {
                     paths: vec![PathBuf::from(path_entry_clone.text().as_str())],
                     patterns: pattern_entry_clone.text()
@@ -141,24 +159,31 @@ impl SearchGUI {
                     search_binary: false,
                 };
                 
-                println!("Search button clicked with config: {:?}", search_config);
+                // Disable search button, enable cancel button
+                button.set_sensitive(false);
+                cancel_button_for_search.set_sensitive(true);
                 
-                // Clone what we need for the thread
-                let buffer_clone = buffer.clone();
-                let status_bar_clone = status_bar.clone();
-                let button_clone = button.clone();
-
-                // Create channel
+                // Create channel for search results
                 let (tx, rx) = async_channel::bounded(1);
                 
+                // Prepare clones for the search thread
+                let quit_search_for_thread = quit_search.clone();
+                let search_config_for_thread = search_config.clone();
+                let tx_for_thread = tx.clone();
+
+                // Prepare clones for the results handler
+                let buffer_for_results = buffer.clone();
+                let status_bar_for_results = status_bar.clone();
+                let button_for_results = button.clone();
+                let cancel_button_for_results = cancel_button_for_search.clone();
+
                 // Spawn search thread
-                let tx_clone = tx.clone();
                 thread::spawn(move || {
-                    let results = search_files(&search_config);
-                    let _ = tx_clone.try_send(results);
+                    let results = search_files(&search_config_for_thread, quit_search_for_thread);
+                    let _ = tx_for_thread.try_send(results);
                 });
 
-                // Handle results in main thread
+                // Handle results
                 glib::spawn_future_local(async move {
                     if let Ok(results) = rx.recv().await {
                         match results {
@@ -179,23 +204,24 @@ impl SearchGUI {
                                     
                                     text.push('\n');
                                     
-                                    let mut end = buffer_clone.end_iter();
-                                    buffer_clone.insert(&mut end, &text);
+                                    let mut end = buffer_for_results.end_iter();
+                                    buffer_for_results.insert(&mut end, &text);
                                 }
 
                                 // Update status bar with result count
-                                status_bar_clone.set_label(&format!("Found {} matching files", results.len()));
+                                status_bar_for_results.set_label(&format!("Found {} matching files", results.len()));
                             },
                             Err(e) => {
-                                let mut end = buffer_clone.end_iter();
-                                buffer_clone.insert(&mut end, &format!("Search error: {}\n", e));
-                                status_bar_clone.set_label("Search failed");
+                                let mut end = buffer_for_results.end_iter();
+                                buffer_for_results.insert(&mut end, &format!("Search error: {}\n", e));
+                                status_bar_for_results.set_label("Search failed");
                             }
                         }
+                        
+                        // Re-enable search button, disable cancel button
+                        button_for_results.set_sensitive(true);
+                        cancel_button_for_results.set_sensitive(false);
                     }
-                    
-                    // Re-enable search button
-                    button_clone.set_sensitive(true);
                 });
             });
 
