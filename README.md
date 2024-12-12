@@ -23,11 +23,11 @@ A fast and user-friendly search utility written in Rust, featuring both CLI and 
 ### Command Line Options Examples
 
 ```bash
-Search in current directory with GUI
+#Search in current directory with GUI
 quicksearch -i .
-Search for "pattern" in all .rs files with 2 lines of context
+#Search for "pattern" in all .rs files with 2 lines of context
 quicksearch -t "pattern" -p ".rs" -c 2 ./src
-Search with 4 worker threads
+#Search with 4 worker threads
 quicksearch -t "pattern" -j 4 ./src
 ```
 
