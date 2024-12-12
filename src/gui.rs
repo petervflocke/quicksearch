@@ -240,22 +240,28 @@ impl SearchGUI {
             let path_entry_clone = path_entry.clone();
             let window_clone = window.clone();
             browse_button.connect_clicked(move |_| {
-                let file_chooser = gtk4::FileDialog::builder()
-                    .title("Select Folder")
+                let dialog = gtk4::FileDialog::builder()
+                    .title("Select Directory")
                     .modal(true)
                     .build();
 
-                let path_entry = path_entry_clone.clone();
-                file_chooser.select_folder(
-                    Some(&window_clone),
-                    None::<&gio::Cancellable>,
-                    move |result| {
-                        if let Ok(file) = result {
-                            if let Some(path) = file.path() {
-                                path_entry.set_text(&path.to_string_lossy());
+                // Set the initial folder based on the current path entry content
+                let current_path = path_entry_clone.text().to_string();
+                let path_entry_for_response = path_entry_clone.clone();
+
+                if !current_path.is_empty() {
+                    let initial_folder = gio::File::for_path(current_path);
+                    dialog.set_initial_folder(Some(&initial_folder));
+                }
+
+                dialog.select_folder(Some(&window_clone), None::<&gio::Cancellable>, 
+                    glib::clone!(@strong path_entry_for_response => move |result| {
+                        if let Ok(folder) = result {
+                            if let Some(path) = folder.path() {
+                                path_entry_for_response.set_text(path.to_str().unwrap_or(""));
                             }
                         }
-                    },
+                    })
                 );
             });
         });
