@@ -19,3 +19,4 @@ libadwaita = { version = "0.5", features = ["v1_4"] }
 glib = "0.18"
 gio = "0.18"
 async-channel = "2.1"
+gdk4 = "0.7"

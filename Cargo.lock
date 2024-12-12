@@ -1118,6 +1118,7 @@ dependencies = [
  "async-channel",
  "clap",
  "crossbeam-channel",
+ "gdk4",
  "gio",
  "glib",
  "glob",

@@ -8,6 +8,8 @@ use std::thread;
 use async_channel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use gtk4::TextView;
+use gdk4;
 
 pub struct SearchGUI {
     pub app: adw::Application,
@@ -77,11 +79,26 @@ impl SearchGUI {
                 .object("number_lines")
                 .expect("Could not get number_lines");
 
-            let results_view: gtk4::TextView = builder_clone
-                .object("results_view")
-                .expect("Could not get results_view");
-            
-            let buffer = results_view.buffer();
+            let text_view: TextView = builder_clone
+                .object("text_view")
+                .expect("Could not get text_view");
+            let buffer = text_view.buffer();
+
+            // Create text tags for clickable paths
+            let tag_table = buffer.tag_table();
+            let link_tag = gtk4::TextTag::builder()
+                .name("link")
+                .underline(gtk4::pango::Underline::Single)
+                .foreground("blue")
+                .build();
+            tag_table.add(&link_tag);
+
+            // Add copy icon tag
+            let copy_tag = gtk4::TextTag::builder()
+                .name("copy")
+                .foreground("gray")
+                .build();
+            tag_table.add(&copy_tag);
 
             // Set initial values from config
             if !config_clone.paths.is_empty() {
@@ -197,22 +214,31 @@ impl SearchGUI {
                             Ok(results) => {
                                 // Update results in text view
                                 for result in &results {
-                                    let mut text = format!("File: {}:{}\n", result.path.display(), result.line_number);
-                                    
-                                    for (line_num, line) in &result.context_before {
-                                        text.push_str(&format!("{:>3} | {}\n", line_num, line));
-                                    }
-                                    
-                                    text.push_str(&format!(">{:>2} | {}\n", result.line_number, result.line));
-                                    
-                                    for (line_num, line) in &result.context_after {
-                                        text.push_str(&format!("{:>3} | {}\n", line_num, line));
-                                    }
-                                    
-                                    text.push('\n');
-                                    
                                     let mut end = buffer_for_results.end_iter();
-                                    buffer_for_results.insert(&mut end, &text);
+                                    
+                                    // Create mark for copy icon
+                                    let copy_start = buffer_for_results.create_mark(None, &end, true);
+                                    buffer_for_results.insert(&mut end, "📋 ");
+                                    let copy_start_iter = buffer_for_results.iter_at_mark(&copy_start);
+                                    buffer_for_results.apply_tag_by_name("copy", &copy_start_iter, &buffer_for_results.end_iter());
+                                    buffer_for_results.delete_mark(&copy_start);
+                                    
+                                    // Create mark for link
+                                    let link_start = buffer_for_results.create_mark(None, &buffer_for_results.end_iter(), true);
+                                    buffer_for_results.insert(&mut end, &format!("{}:{}\n", result.path.display(), result.line_number));
+                                    let link_start_iter = buffer_for_results.iter_at_mark(&link_start);
+                                    buffer_for_results.apply_tag_by_name("link", &link_start_iter, &buffer_for_results.end_iter());
+                                    buffer_for_results.delete_mark(&link_start);
+                                    
+                                    // Add the rest of the content
+                                    for (line_num, line) in &result.context_before {
+                                        buffer_for_results.insert(&mut end, &format!("{:>3} | {}\n", line_num, line));
+                                    }
+                                    buffer_for_results.insert(&mut end, &format!(">{:>2} | {}\n", result.line_number, result.line));
+                                    for (line_num, line) in &result.context_after {
+                                        buffer_for_results.insert(&mut end, &format!("{:>3} | {}\n", line_num, line));
+                                    }
+                                    buffer_for_results.insert(&mut end, "\n");
                                 }
 
                                 // Update status bar with result count
@@ -238,7 +264,8 @@ impl SearchGUI {
                 .expect("Could not get browse_button");
             
             let path_entry_clone = path_entry.clone();
-            let window_clone = window.clone();
+            let window_for_browse = window.clone();
+            let window_for_click = window.clone();
             browse_button.connect_clicked(move |_| {
                 let dialog = gtk4::FileDialog::builder()
                     .title("Select Directory")
@@ -254,7 +281,7 @@ impl SearchGUI {
                     dialog.set_initial_folder(Some(&initial_folder));
                 }
 
-                dialog.select_folder(Some(&window_clone), None::<&gio::Cancellable>, 
+                dialog.select_folder(Some(&window_for_browse), None::<&gio::Cancellable>, 
                     glib::clone!(@strong path_entry_for_response => move |result| {
                         if let Ok(folder) = result {
                             if let Some(path) = folder.path() {
@@ -264,6 +291,88 @@ impl SearchGUI {
                     })
                 );
             });
+
+            // Before the motion controller setup
+            let link_tag_for_motion = link_tag.clone();
+            let motion_controller = gtk4::EventControllerMotion::new();
+            motion_controller.connect_motion(move |controller, x, y| {
+                if let Ok(view) = controller.widget().downcast::<TextView>() {
+                    let (bx, by) = view.window_to_buffer_coords(
+                        gtk4::TextWindowType::Widget,
+                        x as i32,
+                        y as i32,
+                    );
+                    
+                    if let Some(iter) = view.iter_at_location(bx, by) {
+                        let mut start = iter.clone();
+                        start.backward_chars(2);
+                        let mut end = iter.clone();
+                        end.forward_char();
+                        let text = view.buffer().text(&start, &end, false);
+                        
+                        if text.contains("📋") {
+                            let cursor = gdk4::Cursor::from_name("pointer", None).and_then(|c| Some(c));
+                            view.set_cursor(cursor.as_ref());
+                        } else if iter.has_tag(&link_tag_for_motion) {
+                            let cursor = gdk4::Cursor::from_name("pointer", None).and_then(|c| Some(c));
+                            view.set_cursor(cursor.as_ref());
+                        } else {
+                            let cursor = gdk4::Cursor::from_name("text", None).and_then(|c| Some(c));
+                            view.set_cursor(cursor.as_ref());
+                        }
+                    }
+                }
+            });
+            text_view.add_controller(motion_controller);
+
+            // Before the click gesture setup
+            let link_tag_for_click = link_tag.clone();
+            let click_gesture = gtk4::GestureClick::new();
+            click_gesture.connect_pressed(move |gesture, _, x, y| {
+                if let Ok(view) = gesture.widget().downcast::<TextView>() {
+                    let buffer = view.buffer();
+                    let (bx, by) = view.window_to_buffer_coords(
+                        gtk4::TextWindowType::Widget,
+                        x as i32,
+                        y as i32,
+                    );
+                    
+                    if let Some(iter) = view.iter_at_location(bx, by) {
+                        // Check for clipboard icon click
+                        let mut start = iter.clone();
+                        start.backward_chars(2);
+                        let mut end = iter.clone();
+                        end.forward_char();
+                        let text = buffer.text(&start, &end, false);
+                        
+                        if text.contains("📋") {
+                            let path_start = end.clone();
+                            let mut path_end = end.clone();
+                            path_end.forward_line();
+                            let path_text = buffer.text(&path_start, &path_end, false);
+                            let clipboard = view.clipboard();
+                            clipboard.set_text(&path_text);
+                            return;
+                        }
+                        
+                        // Check for file path click
+                        if iter.has_tag(&link_tag_for_click) {
+                            let mut line_start = iter.clone();
+                            line_start.backward_chars(line_start.line_offset());
+                            let mut line_end = iter.clone();
+                            line_end.forward_line();
+                            let path_text = buffer.text(&line_start, &line_end, false);
+                            if let Some(path) = path_text.split(':').next() {
+                                let clean_path = path.trim_start_matches("📋 ").trim();
+                                let file = gio::File::for_path(clean_path);
+                                gtk4::FileLauncher::new(Some(&file))
+                                    .launch(Some(&window_for_click), None::<&gio::Cancellable>, |_| {});
+                            }
+                        }
+                    }
+                }
+            });
+            text_view.add_controller(click_gesture);
         });
     }
 

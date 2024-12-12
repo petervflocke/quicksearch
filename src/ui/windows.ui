@@ -93,8 +93,9 @@
           <object class="GtkScrolledWindow">
             <property name="vexpand">true</property>
             <child>
-              <object class="GtkTextView" id="results_view">
+              <object class="GtkTextView" id="text_view">
                 <property name="editable">false</property>
+                <property name="cursor-visible">true</property>
                 <property name="monospace">true</property>
               </object>
             </child>
