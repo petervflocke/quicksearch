@@ -19,6 +19,7 @@ use std::{
 };
 use crossbeam_channel;
 use crate::SearchConfig;
+use regex::escape;
 
 pub struct SearchResult {
     pub path: PathBuf,
@@ -208,9 +209,11 @@ pub fn search(
     let (tx, rx) = mpsc::channel();
     let quit = quit.clone();
 
-    // Clone the data we need from config before the thread spawn
+    // Clone only what we need from config before the thread spawn
     let patterns = config.patterns.clone();
     let search_path = config.get_search_path();
+    let query = config.query.clone();
+    let use_regex = config.use_regex;  // Get the regex flag
 
     let num_threads = if config.num_workers == 0 {
         thread::available_parallelism()
@@ -232,7 +235,15 @@ pub fn search(
         let work_rx = work_rx.clone();
         let tx = tx.clone();
         let quit = quit.clone();
-        let matcher = RegexMatcher::new(&config.query).unwrap();
+        let query = query.clone();
+
+        // Create matcher based on use_regex flag
+        let matcher = if use_regex {
+            RegexMatcher::new(&query)
+        } else {
+            RegexMatcher::new(&escape(&query))
+        }.unwrap();
+
         let verbose = config.verbose;
         let context_lines = config.context_lines;
         let search_binary = config.search_binary;

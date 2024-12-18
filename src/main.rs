@@ -39,6 +39,10 @@ pub struct Args {
     /// Number of context lines before and after matches
     #[arg(short = 'c', long = "context", default_value_t = 0)]
     pub context: usize,
+
+    /// Use regex pattern for search
+    #[arg(short = 'r', long = "regex", default_value_t = false)]
+    pub use_regex: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,7 @@ pub struct SearchConfig {
     pub context_lines: usize,
     pub search_binary: bool,
     pub num_workers: usize,
+    pub use_regex: bool,
 }
 
 impl Default for SearchConfig {
@@ -62,6 +67,7 @@ impl Default for SearchConfig {
             context_lines: 0,
             search_binary: false,
             verbose: false,
+            use_regex: false,
         }
     }
 }
@@ -82,6 +88,7 @@ impl SearchConfig {
             context_lines: args.context,
             search_binary: false,
             num_workers: args.workers,
+            use_regex: args.use_regex,
         }
     }
 }
