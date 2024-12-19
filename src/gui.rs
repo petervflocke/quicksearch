@@ -7,7 +7,7 @@ use gio;
 use std::thread;
 use async_channel;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering}; // Add AtomicUsize here
 use gtk4::TextView;
 use gdk4;
 
@@ -149,25 +149,24 @@ impl SearchGUI {
             let number_processes_clone = number_processes.clone();
             let number_lines_clone = number_lines.clone();
             let regex_checkbox_clone = regex_checkbox.clone();
-
-            // Modify search button handler
             let builder_for_click = builder_clone.clone();
             let cancel_button_for_search = cancel_button.clone();
+            let status_bar: gtk4::Label = builder_for_click
+                .object("status_bar")
+                .expect("Could not get status_bar");
             search_button.connect_clicked(move |button| {
                 // Reset quit flag
                 quit_search.store(false, Ordering::Relaxed);
-                
-                // Get status bar
-                let status_bar: gtk4::Label = builder_for_click
-                    .object("status_bar")
-                    .expect("Could not get status_bar");
-                
                 // Clear previous results
                 buffer.set_text("");
                 
                 // Update status to "Searching..."
                 status_bar.set_label("Searching...");
                 
+                // Initialize files_processed
+                let files_processed = Arc::new(AtomicUsize::new(0));
+                let update_status = Arc::new(AtomicBool::new(true)); // Add this line
+
                 // Prepare search config
                 let search_path = if path_entry_clone.text().is_empty() {
                     // If no path entered, use current directory
@@ -177,7 +176,7 @@ impl SearchGUI {
                 };
 
                 let search_config = SearchConfig {
-                    paths: vec![search_path],  // Use the processed path
+                    paths: vec![search_path],
                     patterns: pattern_entry_clone.text()
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -191,9 +190,21 @@ impl SearchGUI {
                     verbose: false,
                     search_binary: false,
                     use_regex: regex_checkbox_clone.is_active(),
+                    files_processed: files_processed.clone(), // Add this line
                 };
-                
-                // Disable search button, enable cancel button
+
+                // Spawn a thread to update the status bar
+                let status_bar_clone = status_bar.clone();
+                let files_processed_clone = files_processed.clone();
+                let update_status_clone = update_status.clone(); // Add this line
+                glib::MainContext::default().spawn_local(glib::clone!(@strong status_bar_clone => async move {
+                    while update_status_clone.load(Ordering::Relaxed) { // Modify this line
+                        let processed = files_processed_clone.load(Ordering::Relaxed);
+                        status_bar_clone.set_label(&format!("Files processed: {}", processed));
+                        glib::timeout_future(std::time::Duration::from_millis(1000)).await;
+                    }
+                }));
+
                 button.set_sensitive(false);
                 cancel_button_for_search.set_sensitive(true);
                 
@@ -220,6 +231,7 @@ impl SearchGUI {
                 // Handle results
                 glib::spawn_future_local(async move {
                     if let Ok(results) = rx.recv().await {
+                        update_status.store(false, Ordering::Relaxed); // Add this line
                         match results {
                             Ok(results) => {
                                 // Update results in text view
@@ -252,12 +264,14 @@ impl SearchGUI {
                                 }
 
                                 // Update status bar with result count
-                                status_bar_for_results.set_label(&format!("Found {} matching files", results.len()));
+                                let processed = files_processed.load(Ordering::Relaxed);
+                                status_bar_for_results.set_label(&format!("Found {} matching files, processed {} files", results.len(), processed));
                             },
                             Err(e) => {
                                 let mut end = buffer_for_results.end_iter();
                                 buffer_for_results.insert(&mut end, &format!("Search error: {}\n", e));
-                                status_bar_for_results.set_label("Search failed");
+                                let processed = files_processed.load(Ordering::Relaxed);
+                            status_bar_for_results.set_label(&format!("Search failed, processed {} files", processed));
                             }
                         }
                         
@@ -314,6 +328,7 @@ impl SearchGUI {
                     );
                     
                     if let Some(iter) = view.iter_at_location(bx, by) {
+                        // Check for clipboard icon click
                         let mut start = iter.clone();
                         start.backward_chars(2);
                         let mut end = iter.clone();
@@ -389,4 +404,4 @@ impl SearchGUI {
     pub fn run(&self) -> i32 {
         self.app.run_with_args::<&str>(&[]).into()
     }
-} 
+}

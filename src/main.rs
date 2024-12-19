@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 mod search;
 mod gui;
@@ -55,6 +55,7 @@ pub struct SearchConfig {
     pub search_binary: bool,
     pub num_workers: usize,
     pub use_regex: bool,
+    pub files_processed: Arc<AtomicUsize>, // New field
 }
 
 impl Default for SearchConfig {
@@ -68,6 +69,7 @@ impl Default for SearchConfig {
             search_binary: false,
             verbose: false,
             use_regex: false,
+            files_processed: Arc::new(AtomicUsize::new(0)), // Initialize new field
         }
     }
 }
@@ -89,6 +91,7 @@ impl SearchConfig {
             search_binary: false,
             num_workers: args.workers,
             use_regex: args.use_regex,
+            files_processed: Arc::new(AtomicUsize::new(0)), // Initialize new field
         }
     }
 }

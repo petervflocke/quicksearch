@@ -236,6 +236,7 @@ pub fn search(
         let tx = tx.clone();
         let quit = quit.clone();
         let query = query.clone();
+        let files_processed = config.files_processed.clone();
 
         // Create matcher based on use_regex flag
         let matcher = if use_regex {
@@ -288,6 +289,9 @@ pub fn search(
                         eprintln!("Error searching {}: {}", path.display(), e);
                     }
                 }
+
+                // Update progress
+                files_processed.fetch_add(1, Ordering::Relaxed);
             }
         }));
     }
