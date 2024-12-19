@@ -12,7 +12,7 @@ use std::{
     path::PathBuf,
     sync::{
         mpsc::{self, Sender},
-        Arc, atomic::{AtomicBool, Ordering},
+        Arc, atomic::{AtomicBool, Ordering, AtomicUsize},
     },
     thread,
     process::Command,
@@ -114,11 +114,11 @@ impl<'a> Sink for SearchSink<'a> {
 
     fn finish(&mut self, _searcher: &Searcher, _: &SinkFinish) -> Result<(), Self::Error> {
         self.send_last_match();
-        Ok(())
+        Ok::<(), std::io::Error>(())
     }
 }
 
-fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<SearchResult>, verbose: bool, context_lines: usize) -> Result<()> {
+fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<SearchResult>, verbose: bool, context_lines: usize, files_processed: Arc<AtomicUsize>) -> Result<()> {
     let path_buf = path.to_path_buf();
     
     let result = std::panic::catch_unwind(|| {
@@ -134,7 +134,7 @@ fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<Search
             if verbose {
                 eprintln!("Failed to process PDF {} (no error message)", path.display());
             }
-            return Ok(());
+            return Ok::<(), std::io::Error>(());
         }
 
         let text = String::from_utf8_lossy(&output.stdout).to_string();
@@ -179,7 +179,7 @@ fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<Search
             }
         }
         
-        Ok(())
+        Ok::<(), std::io::Error>(())
     });
 
     match result {
@@ -188,9 +188,13 @@ fn search_pdf(path: &std::path::Path, matcher: &RegexMatcher, tx: &Sender<Search
             if verbose {
                 eprintln!("Failed to process PDF {} (no error message)", path_buf.display());
             }
-            Ok(())
+            Ok::<(), std::io::Error>(())
         }
-    }
+    }?;
+
+    // Update progress
+    files_processed.fetch_add(1, Ordering::Relaxed);
+    Ok(())
 }
 
 pub fn search_files(
@@ -259,7 +263,7 @@ pub fn search(
                 
                 // Handle PDFs separately
                 if path.extension().map_or(false, |ext| ext == "pdf") {
-                    if let Err(e) = search_pdf(path, &matcher, &tx, verbose, context_lines) {
+                    if let Err(e) = search_pdf(path, &matcher, &tx, verbose, context_lines, files_processed.clone()) {
                         if verbose {
                             eprintln!("Error searching PDF {}: {}", path.display(), e);
                         }
