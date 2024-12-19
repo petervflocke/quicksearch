@@ -36,7 +36,7 @@ quicksearch -t "pattern" -j 4 ./src
 ### Branches
 - `main` (v0.1.0-debug-reference)
   - Original version with debug prints
-  - Full GUI functionality
+  - Simplified GUI functionality
   - Reference implementation for debugging
 
 - `feature/clean-gui` (v0.1.0-clean)
@@ -46,11 +46,14 @@ quicksearch -t "pattern" -j 4 ./src
     - Clickable file paths
     - Improved cursor feedback
 
+- `feature/clean-gui2` (v0.1.1)
+  - Added progress tracking in GUI
+  - Displays number of processed files and search results in status bar    
+
 ### Key Components
-- CLI processing (`src/cli.rs`)
+- CLI processing (`src/main.rs`)
 - Search engine (`src/search.rs`)
 - GUI interface (`src/gui.rs`)
-- Configuration handling (`src/config.rs`)
 
 ## Building
 
@@ -92,4 +95,3 @@ Note: When using GUI mode (-i), run from the project directory to ensure UI reso
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
