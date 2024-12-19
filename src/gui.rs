@@ -100,6 +100,14 @@ impl SearchGUI {
                 .build();
             tag_table.add(&copy_tag);
 
+            // Get regex checkbox
+            let regex_checkbox: gtk4::CheckButton = builder_clone
+                .object("regex-onoff")
+                .expect("Could not get regex checkbox");
+
+            // Set initial regex state from config
+            regex_checkbox.set_active(config_clone.use_regex);
+
             // Set initial values from config
             if !config_clone.paths.is_empty() {
                 path_entry.set_text(&config_clone.paths[0].to_string_lossy());
@@ -140,6 +148,7 @@ impl SearchGUI {
             let pattern_entry_clone = pattern_entry.clone();
             let number_processes_clone = number_processes.clone();
             let number_lines_clone = number_lines.clone();
+            let regex_checkbox_clone = regex_checkbox.clone();
 
             // Modify search button handler
             let builder_for_click = builder_clone.clone();
@@ -181,6 +190,7 @@ impl SearchGUI {
                         .unwrap_or(0),
                     verbose: false,
                     search_binary: false,
+                    use_regex: regex_checkbox_clone.is_active(),
                 };
                 
                 // Disable search button, enable cancel button
